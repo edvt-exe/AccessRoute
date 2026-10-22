@@ -1,0 +1,21 @@
+{
+  "id": "sample",
+  "name": "Cladire demo",
+  "version": 1,
+  "status": "published",
+  "updatedAt": "2026-10-22T00:00:00.000Z",
+  "landmarks": [
+    { "id": "intrare", "name": "Intrarea principala", "kind": "entrance", "floor": 0 },
+    { "id": "lift", "name": "Liftul principal", "kind": "lift", "floor": 0 },
+    { "id": "scari", "name": "Scarile principale", "kind": "stairs", "floor": 0 },
+    { "id": "birou", "name": "Biroul echipei", "kind": "room", "floor": 1 },
+    { "id": "iesire", "name": "Iesirea de urgenta", "kind": "exit", "floor": 0 }
+  ],
+  "routes": [
+    { "id": "r1", "from": "intrare", "to": "lift", "seconds": 20, "meters": 26, "stairs": false, "doorType": "automatic", "lighting": "bright", "noise": "low", "instruction": "Mergi drept pana la lift." },
+    { "id": "r2", "from": "intrare", "to": "scari", "seconds": 15, "meters": 20, "stairs": false, "doorType": "none", "lighting": "normal", "noise": "medium", "instruction": "Mergi drept, scarile sunt pe stanga." },
+    { "id": "r3", "from": "lift", "to": "birou", "seconds": 25, "meters": 33, "stairs": false, "doorType": "manual", "lighting": "bright", "noise": "low", "instruction": "Din lift, cotesti dreapta si mergi pe coridor." },
+    { "id": "r4", "from": "scari", "to": "birou", "seconds": 30, "meters": 39, "stairs": true, "doorType": "heavy", "lighting": "normal", "noise": "high", "instruction": "Urca un etaj, apoi usa grea din dreapta." },
+    { "id": "r5", "from": "intrare", "to": "iesire", "seconds": 18, "meters": 23, "stairs": false, "doorType": "none", "lighting": "normal", "noise": "low", "instruction": "Mergi drept pana la iesirea marcata." }
+  ]
+}
