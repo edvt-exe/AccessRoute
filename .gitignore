@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 !.env.example
+
+# local storage when no blob token is set
+.data
+
+# written by next dev
+AGENTS.md
