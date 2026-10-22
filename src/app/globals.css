@@ -1,26 +1,69 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #474747;
+  --card: #f3f4f6;
+  --border: #6b7280;
+  --primary: #0b3d91;
+  --primary-fg: #ffffff;
+  --danger: #b00020;
+  --danger-fg: #ffffff;
+  --ok: #0f6b2f;
+  --warn-bg: #fff4ce;
+  --warn-fg: #3d2e00;
+  --focus: #ffbf47;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0d0d0d;
+    --fg: #f5f5f5;
+    --muted: #c4c4c4;
+    --card: #1c1c1c;
+    --border: #9ca3af;
+    --primary: #8ab4ff;
+    --primary-fg: #0d0d0d;
+    --danger: #ff8a80;
+    --danger-fg: #0d0d0d;
+    --ok: #7ee2a0;
+    --warn-bg: #3d2e00;
+    --warn-fg: #fff4ce;
   }
 }
 
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-ok: var(--ok);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-fg: var(--warn-fg);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.45;
+}
+
+:focus-visible {
+  outline: 4px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 8px #000000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
