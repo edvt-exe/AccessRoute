@@ -52,11 +52,6 @@ The phone counts steps from the rhythm of the walk, follows the turns with the g
 closes the loop. Then they point the camera at each place (a desk, the kitchen, a door) or obstacle (a sofa, a
 plant), name it, and tap the drawing where it is.
 
-<!-- SCREENSHOT: docs/screenshots/recording.png -->
-<p align="center">
-  <img src="docs/screenshots/recording.png" alt="Recording a room: the outline drawn while walking, with places added on it" width="300">
-</p>
-
 ### 2. The map is checked before anyone relies on it
 
 Every new map waits in *To check*. The reviewer sees the video and the room from above, can type the real wall
@@ -70,7 +65,6 @@ Nothing it suggests is used until the reviewer accepts it.
 <!-- SCREENSHOT: docs/screenshots/review.png and docs/screenshots/ai-check.png -->
 <p align="center">
   <img src="docs/screenshots/review.png" alt="Review screen with the room drawing, wall lengths and wall details" width="300">
-  <img src="docs/screenshots/ai-check.png" alt="AI check: suggested descriptions and hazards to accept or reject" width="300">
 </p>
 
 ### 3. The employee is guided by voice
