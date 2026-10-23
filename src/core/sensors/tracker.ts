@@ -2,7 +2,7 @@
 
 import { advance, defaultStepLength, normalizeHeading, snapHeading, type Point } from "@/core/map";
 import { watchHeading } from "./heading";
-import { watchSteps } from "./steps";
+import { StepCounter, sampleFrom, watchMotion } from "./steps";
 
 export type StepEvent = { index: number; heading: number; position: Point };
 
@@ -29,18 +29,21 @@ export function createTracker({ stepLength = defaultStepLength, snap = true } = 
       pendingFacing = null;
     }
   });
-  const stopSteps = watchSteps(
-    () => {
-      // typing a name makes the phone shake, those are not steps
-      if (paused) return;
-      const h = heading() ?? 0;
-      position = advance(position, snap ? snapHeading(h) : h, stepLength);
-      if (constraint) position = constraint(position);
-      steps++;
-      listeners.forEach((listener) => listener({ index: steps, heading: h, position }));
-    },
-    () => (motion = true),
-  );
+  function step() {
+    const h = heading() ?? 0;
+    position = advance(position, snap ? snapHeading(h) : h, stepLength);
+    if (constraint) position = constraint(position);
+    steps++;
+    listeners.forEach((listener) => listener({ index: steps, heading: h, position }));
+  }
+
+  const counter = new StepCounter();
+  const stopMotion = watchMotion((reading) => {
+    motion = true;
+    // typing a name or listening to an instruction makes the phone shake, those are not steps
+    if (paused) return;
+    for (let i = counter.push(sampleFrom(reading)); i > 0; i--) step();
+  });
 
   return {
     // tells the tracker which way the person faces right now, in the room frame
@@ -56,11 +59,25 @@ export function createTracker({ stepLength = defaultStepLength, snap = true } = 
     resetSteps() {
       steps = 0;
     },
+    // while paused the person is not expected to walk, bounces half seen before are forgotten
     pause() {
       paused = true;
+      counter.reset();
     },
+    // the person is expected to stand: a walk has to show a steady rhythm before its steps count
     resume() {
       paused = false;
+      counter.reset();
+    },
+    // the person was asked to walk, so steps count without waiting for a rhythm. oneWalk: only until they stop
+    expectWalk({ oneWalk = false } = {}) {
+      paused = false;
+      counter.expectWalk({ oneWalk });
+    },
+    // the person says they arrived somewhere: steps held back while no rhythm showed are counted now
+    takePending() {
+      if (paused) return;
+      for (let i = counter.takePending(performance.now()); i > 0; i--) step();
     },
     setPosition(point: Point) {
       position = point;
@@ -86,7 +103,7 @@ export function createTracker({ stepLength = defaultStepLength, snap = true } = 
     },
     stop() {
       stopHeading();
-      stopSteps();
+      stopMotion();
       listeners.clear();
     },
   };

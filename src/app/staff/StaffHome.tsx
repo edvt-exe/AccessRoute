@@ -171,6 +171,9 @@ export function StaffHome() {
         </ul>
       </section>
 
+      <Link href="/staff/sensors" className="min-h-12 self-start py-3 text-muted underline">
+        Test the motion sensors
+      </Link>
       <Link href="/?reset=1" className="min-h-12 self-start py-3 text-muted underline">
         Use this phone in a different role
       </Link>

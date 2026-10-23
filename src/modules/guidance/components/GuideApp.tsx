@@ -95,6 +95,7 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
 
   function endTrip() {
     trip.current = null;
+    tracker.current?.pause();
     stopCamera();
     void wakeLock.current?.release().catch(() => {});
     wakeLock.current = null;
@@ -110,6 +111,8 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
     unlockAudio();
     void requestMotionPermission();
     tracker.current ??= createTracker({ stepLength });
+    // nobody walks before the first instruction, startLeg switches counting on
+    tracker.current.pause();
     const keepAwake = (navigator as unknown as { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock;
     keepAwake?.request("screen").then((lock) => (wakeLock.current = lock)).catch(() => {});
   }
@@ -270,8 +273,8 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
     await startLeg(id, intro);
   }
 
-  // step 3: one instruction at a time
-  async function startLeg(id: number, intro = "") {
+  // step 3: one instruction at a time. moving: the person keeps walking into this leg without stopping
+  async function startLeg(id: number, intro = "", moving = false) {
     const t = trip.current;
     const tr = tracker.current;
     if (!t || !tr) return;
@@ -281,6 +284,8 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
     const text = [intro, legSentence(leg, facing, last, t.destination.name, stepLength)].filter(Boolean).join(" ");
     setLegInfo({ heading: Math.round(leg.heading), metres: Math.round(leg.metres * 100) / 100 });
     setScreen("guiding");
+    // standing while listening and turning makes the phone bounce, those bounces are not steps
+    if (!moving) tr.pause();
     await say(text, true);
     if (id !== run.current) return;
 
@@ -293,6 +298,8 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
       await waitUntilFacing(id, leg.heading);
       if (id !== run.current) return;
     }
+    // walking mode for the whole leg: a person who pauses half way still has the rest of it counted
+    if (!moving) tr.expectWalk();
     follow(id, leg);
   }
 
@@ -358,7 +365,7 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
     const next = t.legs[t.index];
     const facing = tracker.current?.heading ?? t.facing;
     const sharp = facing !== null && describeTurn(turnAngle(facing, next.heading)) !== null;
-    await startLeg(id, sharp ? "Stop." : "Keep going.");
+    await startLeg(id, sharp ? "Stop." : "Keep going.", !sharp);
   }
 
   // "check where you are": the measured position, corrected by the camera when the ai is on
@@ -368,6 +375,7 @@ export function GuideApp({ maps, testMapName, getBlocked, onRequestRecording }: 
     const tr = tracker.current;
     if (!t || !tr) return;
     setScreen("busy");
+    tr.pause();
     await say("Checking where you are. Stand still.");
     if (id !== run.current) return;
     const seen = await cameraLocate(t.map);

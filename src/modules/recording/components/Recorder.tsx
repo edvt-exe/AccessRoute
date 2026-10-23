@@ -53,6 +53,8 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
   const cornerViews = useRef<{ step: number; image: string }[]>([]);
   const roomViews = useRef<(Point & { walkIndex: number; heading: number; image: string })[]>([]);
   const walkCount = useRef(0);
+  // the same headings as wallSteps, but up to date inside a tap that has just counted held back steps
+  const wallHeadings = useRef<number[]>([]);
   const wallTotal = useRef(0);
   const mapId = useRef<string | null>(null);
   const saved = useRef<{ blob: Blob | null; videoUrl: string | null }>({ blob: null, videoUrl: null });
@@ -151,7 +153,8 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
       setStepCount(step.index);
       setPosition(step.position);
       if (phaseRef.current === "walls") {
-        setWallSteps((w) => [...w, step.heading]);
+        wallHeadings.current.push(step.heading);
+        setWallSteps([...wallHeadings.current]);
         setTrace((t) => [...t, round(step.position)]);
         if (step.index % viewEvery.walls === 0) {
           const image = smallView();
@@ -180,6 +183,8 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     tracker.current.anchor(0);
     tracker.current.setPosition({ x: 0, y: 0 });
     tracker.current.resetSteps();
+    // the walk to the first corner starts right after this tap, its steps count at once even if it is short
+    tracker.current.expectWalk({ oneWalk: true });
     setStepCount(0);
     const entrance: PendingSpot = {
       id: "s1",
@@ -195,6 +200,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     };
     setSpots([entrance]);
     setTrace([{ x: 0, y: 0 }]);
+    wallHeadings.current = [];
     setWallSteps([]);
     setCorners([]);
     wallViews.current = [];
@@ -209,29 +215,42 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
   }
 
   function markCorner() {
-    if (corners.at(-1) === wallSteps.length || wallSteps.length === 0) return;
-    setCorners([...corners, wallSteps.length]);
+    // reaching the corner proves the wall was walked, steps held back on a short wall count now
+    tracker.current?.takePending();
+    const at = wallHeadings.current.length;
+    if (at === 0 || corners.at(-1) === at) {
+      setMessage("No steps were counted since the last corner. Walk along the wall, then press Corner.");
+      return;
+    }
+    setCorners([...corners, at]);
     // the recorder faces into the room here, a clear view of most of it
     const v = video.current;
     const image = v && captureVideoFrame(v, 384, 0.6);
-    if (image) cornerViews.current.push({ step: wallSteps.length, image });
+    if (image) cornerViews.current.push({ step: at, image });
+    // the next wall starts here
+    tracker.current?.expectWalk({ oneWalk: true });
     beep(1100, 120);
     setMessage(`Corner ${corners.length + 1} saved with a photo. Carry on along the next wall.`);
   }
 
   function finishWalls() {
+    // the last wall back to the entrance may be short too
+    tracker.current?.takePending();
+    const headings = wallHeadings.current;
     // with marked corners each wall is exactly what was walked between two presses, otherwise corners are guessed
     const { outline: computed, closureError: gap } =
-      corners.length >= 2 ? outlineFromCorners(wallSteps, corners, 0.7) : outlineFromSteps(wallSteps, 0.7);
+      corners.length >= 2 ? outlineFromCorners(headings, corners, 0.7) : outlineFromSteps(headings, 0.7);
     // a walk with too few corners cannot make a room, a box around the walk keeps the recording usable
     const room = computed.length >= 3 ? computed : boxAround(trace);
     setOutline(room);
     setClosureError(gap);
-    wallTotal.current = wallSteps.length;
+    wallTotal.current = headings.length;
     // the gyroscope drifts a little during the wall walk; facing into the room again resets "straight ahead"
     tracker.current?.anchor(0);
     // from now on a step can never end up behind a wall
     tracker.current?.constrain((p) => clampInside(p, room, 0.3));
+    // between spots the recorder often stands and reads the screen, a walk has to show a rhythm again
+    tracker.current?.resume();
     tracker.current?.setPosition({ x: 0, y: 0 });
     setPosition({ x: 0, y: 0 });
     setWalked([{ x: 0, y: 0 }]);
@@ -247,6 +266,8 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
       setError("The camera picture is not ready, wait a second and try again.");
       return;
     }
+    // walking up to the spot proves it was a walk, steps held back on a short way there count now
+    tracker.current.takePending();
     setNaming({ kind, ...shot, position: tracker.current.position, heading: tracker.current.heading, videoTime: videoTime() });
     pauseVideo();
     setSpotName("");
@@ -486,7 +507,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
             the corner, <strong>turn to face into the room</strong> and press <strong>Corner</strong> (it takes a photo), then carry on along the next wall. When you are back at the entrance, face into the room exactly
             like at the start and press the last button.
           </p>
-          <Button onClick={markCorner} disabled={wallSteps.length === 0 || corners.at(-1) === wallSteps.length} className="min-h-24 flex-col text-3xl">
+          <Button onClick={markCorner} className="min-h-24 flex-col text-3xl">
             Corner
             <span className="block text-lg font-normal">{corners.length} marked</span>
           </Button>
