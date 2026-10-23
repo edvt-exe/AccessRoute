@@ -106,6 +106,12 @@ export function StaffHome() {
       <LinkButton href="/staff/record" variant="danger" className="min-h-20 text-2xl">
         ● Record a floor
       </LinkButton>
+      <LinkButton href="/staff/building" variant="secondary">
+        Building map and accessibility report
+      </LinkButton>
+      <LinkButton href="/staff/tour" variant="secondary">
+        First-day tour for a new colleague
+      </LinkButton>
 
       {permission === "default" && (
         <Button
@@ -164,6 +170,9 @@ export function StaffHome() {
                 </LinkButton>
                 <LinkButton href={`/staff/review/${m.id}`} variant="secondary">
                   Open
+                </LinkButton>
+                <LinkButton href={`/staff/obstacles/${m.id}`} variant="secondary" className="col-span-2">
+                  Add obstacle
                 </LinkButton>
               </div>
             </li>

@@ -2,18 +2,19 @@
 
 /* eslint-disable @next/next/no-img-element -- previews of photos taken on this phone */
 import { useEffect, useRef, useState } from "react";
-import { clampInside, outlineFromCorners, outlineFromSteps, round, wallsSoFar, type FloorMap, type Point, type Spot, type View } from "@/core/map";
+import { clampInside, obstacleRadius, outlineFromCorners, outlineFromSteps, round, wallsSoFar, type DoorOpening, type FloorMap, type Hazard, type Passage, type Stairs, type Point, type Spot, type View } from "@/core/map";
 import { requestMotionPermission } from "@/core/sensors/heading";
 import { beep } from "@/core/speech/speech";
 import { createTracker, type Tracker } from "@/core/sensors/tracker";
 import { cameraErrorMessage, closeCamera, openCamera } from "@/core/storage/camera";
 import { captureVideoFrame } from "@/core/storage/image";
-import { Button, LiveRegion, Notice, RoomSketch, pointOnSketch } from "@/core/ui";
+import { Button, LiveRegion, Notice, RoomSketch, StepCalibration, pointOnSketch } from "@/core/ui";
+import { useStepProfile } from "@/core/device/store";
 import { createMap, uploadVideo } from "../lib/client";
 import { canRecordVideo, createVideoRecorder } from "../lib/media";
-import { maxViews, newMapId, obstacleSizes, reanchor, spotPosition, thin, viewEvery, type ObstacleSize, type PendingSpot } from "../lib/walk";
+import { maxViews, newMapId, obstacleSizes, thin, viewEvery, type ObstacleSize, type PendingSpot } from "../lib/walk";
 
-type Phase = "intro" | "entrance" | "walls" | "spots" | "naming" | "saving" | "failed";
+type Phase = "intro" | "entrance" | "walls" | "spots" | "naming" | "placing" | "saving" | "failed";
 
 type RecorderProps = {
   staffName: string;
@@ -41,18 +42,19 @@ function boxAround(points: Point[]): Point[] {
 }
 
 export function Recorder({ staffName, onCreated }: RecorderProps) {
+  // the recorder's own step, so walls come out as long as they are
+  const steps = useStepProfile();
+  const metresPerStep = steps.length * steps.factor;
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const recorder = useRef<ReturnType<typeof createVideoRecorder> | null>(null);
   const tracker = useRef<Tracker | null>(null);
   const clock = useRef({ startedAt: 0, pausedAt: 0, paused: 0 });
-  const anchorIndex = useRef(0);
   const sketch = useRef<SVGSVGElement>(null);
-  // automatic photos for camera recognition: wall views know their step, room views their place in the walk
+  // automatic photos for the ai analysis of the room: wall views know their step, room views their place in the walk
   const wallViews = useRef<{ step: number; image: string }[]>([]);
   const cornerViews = useRef<{ step: number; image: string }[]>([]);
   const roomViews = useRef<(Point & { walkIndex: number; heading: number; image: string })[]>([]);
-  const walkCount = useRef(0);
   const wallTotal = useRef(0);
   const mapId = useRef<string | null>(null);
   const saved = useRef<{ blob: Blob | null; videoUrl: string | null }>({ blob: null, videoUrl: null });
@@ -65,6 +67,11 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
   const [naming, setNaming] = useState<Naming | null>(null);
   const [spotName, setSpotName] = useState("");
   const [size, setSize] = useState<ObstacleSize>("medium");
+  const [isDoor, setIsDoor] = useState(false);
+  const [opens, setOpens] = useState<DoorOpening | "">("");
+  const [via, setVia] = useState<Passage>("door");
+  const [stairs, setStairs] = useState<Stairs>({ steps: 12, going: "up", handrail: "right" });
+  const [hazard, setHazard] = useState<Hazard | "">("");
   const [trace, setTrace] = useState<Point[]>([]);
   const [walked, setWalked] = useState<Point[]>([]);
   const [outline, setOutline] = useState<Point[]>([]);
@@ -121,7 +128,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
 
   function smallView() {
     const v = video.current;
-    return v ? captureVideoFrame(v, 256, 0.6) : null;
+    return v ? captureVideoFrame(v, 320, 0.6) : null;
   }
 
   function photo() {
@@ -146,23 +153,17 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
       return;
     }
     if (!(await motion)) setError("Motion access was refused. Steps and turns cannot be measured without it.");
-    tracker.current = createTracker();
+    tracker.current = createTracker({ stepLength: metresPerStep });
     tracker.current.onStep((step) => {
       setStepCount(step.index);
-      setPosition(step.position);
+      // only the wall walk is measured from steps; after it the recorder shows where they stand on the drawing
       if (phaseRef.current === "walls") {
+        setPosition(step.position);
         setWallSteps((w) => [...w, step.heading]);
         setTrace((t) => [...t, round(step.position)]);
         if (step.index % viewEvery.walls === 0) {
           const image = smallView();
           if (image) wallViews.current.push({ step: step.index, image });
-        }
-      } else if (phaseRef.current === "spots") {
-        setWalked((w) => [...w, round(step.position)]);
-        const walkIndex = walkCount.current++;
-        if (walkIndex % viewEvery.spots === 0) {
-          const image = smallView();
-          if (image) roomViews.current.push({ ...round(step.position), walkIndex, heading: step.heading, image });
         }
       }
     });
@@ -222,7 +223,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
   function finishWalls() {
     // with marked corners each wall is exactly what was walked between two presses, otherwise corners are guessed
     const { outline: computed, closureError: gap } =
-      corners.length >= 2 ? outlineFromCorners(wallSteps, corners, 0.7) : outlineFromSteps(wallSteps, 0.7);
+      corners.length >= 2 ? outlineFromCorners(wallSteps, corners, metresPerStep) : outlineFromSteps(wallSteps, metresPerStep);
     // a walk with too few corners cannot make a room, a box around the walk keeps the recording usable
     const room = computed.length >= 3 ? computed : boxAround(trace);
     setOutline(room);
@@ -235,8 +236,6 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     tracker.current?.setPosition({ x: 0, y: 0 });
     setPosition({ x: 0, y: 0 });
     setWalked([{ x: 0, y: 0 }]);
-    walkCount.current = 1;
-    anchorIndex.current = 0;
     setPhase("spots");
     setMessage("Walls saved. Now walk to every place and obstacle and add it.");
   }
@@ -251,27 +250,44 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     pauseVideo();
     setSpotName("");
     setSize("medium");
+    setIsDoor(false);
+    setOpens("");
+    setVia("door");
+    setHazard("");
     setError("");
     setPhase("naming");
     setMessage(kind === "place" ? "Paused. Type the name of this place." : "Paused. Type what the obstacle is.");
   }
 
-  function saveSpot() {
+  // first what it is, then where: the recorder taps the drawing where the thing is
+  function nameSpot() {
+    if (!naming || !spotName.trim()) return;
+    setPhase("placing");
+    setMessage(`Now tap the drawing where ${spotName.trim()} is.`);
+  }
+
+  function placeSpot(event: { clientX: number; clientY: number }) {
     const name = spotName.trim();
-    if (!naming || !name) return;
-    const radius = naming.kind === "obstacle" ? obstacleSizes[size].radius : 0;
+    const point = pointOnSketch(sketch.current, event);
+    if (!naming || !name || !point) return;
+    // the size is measured against this room, a large thing in a narrow room is not 2 m across
+    const radius = naming.kind === "obstacle" ? obstacleRadius(size, outline) : 0;
     const spot: PendingSpot = {
       id: `s${spots.length + 1}`,
       kind: naming.kind,
       name,
       // places can sit against a wall, an obstacle's middle is at least half its size away from it
-      ...round(clampInside(spotPosition(naming.position, naming.heading, naming.kind, radius), outline, naming.kind === "obstacle" ? Math.max(0.2, radius * 0.6) : 0.15)),
+      ...round(clampInside(point, outline, naming.kind === "obstacle" ? Math.max(0.2, radius * 0.6) : 0.15)),
       radius,
       heading: naming.heading,
       photo: naming.photo,
       thumb: naming.thumb,
       videoTime: naming.videoTime,
-      walkIndex: walked.length - 1,
+      ...(naming.kind === "place" && isDoor
+        ? { door: true, leadsTo: null, via, opens: via === "door" ? opens || null : null, ...(via === "stairs" ? { stairs } : {}) }
+        : {}),
+      ...(naming.kind === "obstacle" && hazard ? { hazard } : {}),
+      walkIndex: 0,
     };
     setSpots([...spots, spot]);
     setNaming(null);
@@ -284,32 +300,6 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     setNaming(null);
     resumeVideo();
     setPhase("spots");
-  }
-
-  // the person sees the room and knows where they stand better than the step counter does
-  function moveHere(event: { clientX: number; clientY: number }) {
-    const point = pointOnSketch(sketch.current, event);
-    if (!point || outline.length < 3) return;
-    const inside = round(clampInside(point, outline, 0.3));
-    tracker.current?.setPosition(inside);
-    setPosition(inside);
-    // a known position, like the entrance: later corrections do not move what was placed before it
-    setWalked([...walked, inside]);
-    anchorIndex.current = walked.length;
-    walkCount.current = walked.length + 1;
-    setMessage("Position corrected.");
-  }
-
-  function backAtEntrance() {
-    const result = reanchor(walked, anchorIndex.current, spots);
-    roomViews.current = reanchor(walked, anchorIndex.current, roomViews.current).spots;
-    setWalked(result.walked);
-    setSpots(result.spots);
-    anchorIndex.current = result.walked.length - 1;
-    tracker.current?.anchor(0);
-    tracker.current?.setPosition({ x: 0, y: 0 });
-    setPosition({ x: 0, y: 0 });
-    setMessage(`Position reset at the entrance. The walk was off by ${result.error.toFixed(1)} m and has been corrected.`);
   }
 
   function collectViews(): View[] {
@@ -389,9 +379,10 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
     }
   }
 
-  const live = phase === "walls" || phase === "spots" || phase === "naming";
+  const live = phase === "walls" || phase === "spots" || phase === "naming" || phase === "placing";
+  const paused = phase === "naming" || phase === "placing";
   // drawn with the same straightening as the final outline, so what you see is what you get
-  const preview = phase === "walls" && corners.length > 0 ? wallsSoFar(wallSteps, corners, 0.7) : [];
+  const preview = phase === "walls" && corners.length > 0 ? wallsSoFar(wallSteps, corners, metresPerStep) : [];
   const places = spots.filter((s) => s.kind === "place").length;
   const obstacles = spots.filter((s) => s.kind === "obstacle").length;
 
@@ -405,12 +396,12 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
           muted
           playsInline
           aria-hidden="true"
-          className={`mx-auto aspect-[3/4] rounded-xl bg-black object-cover ${phase === "entrance" ? "h-[55dvh]" : phase === "naming" ? "h-[20dvh]" : "h-[34dvh]"}`}
+          className={`mx-auto aspect-[3/4] rounded-xl bg-black object-cover ${phase === "entrance" ? "h-[55dvh]" : phase === "naming" ? "h-[20dvh]" : phase === "placing" ? "h-[14dvh]" : "h-[34dvh]"}`}
         />
         {live && (
           <p className="absolute left-3 top-3 rounded-lg bg-black/80 px-3 py-2 text-xl font-bold text-white">
-            <span className={phase === "naming" ? "text-yellow-300" : "text-red-400"}>{phase === "naming" ? "❚❚ PAUSED" : "● REC"}</span>{" "}
-            <span aria-live="off">{stepCount} steps</span>
+            <span className={paused ? "text-yellow-300" : "text-red-400"}>{paused ? "❚❚ PAUSED" : "● REC"}</span>{" "}
+            <span aria-live="off">{Math.round(stepCount * steps.factor)} steps</span>
           </p>
         )}
       </div>
@@ -428,6 +419,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
             void openCam();
           }}
         >
+          <StepCalibration />
           <Notice>
             <strong>1.</strong> Walk once along all the walls of the room and come back to the entrance.
             <br />
@@ -513,8 +505,8 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
       {phase === "spots" && (
         <div className="flex flex-col gap-3">
           <p className="text-lg">
-            Walk to a place or obstacle, stand right in front of it facing it, then press a button. Whenever you pass the
-            entrance, face into the room and press “I am back at the entrance” to keep the map accurate.
+            Point the camera at a place or an obstacle from a step or two away and press a button. Say what it is, then tap
+            the drawing where it is.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Button onClick={() => startSpot("place")} className="min-h-24 text-xl">
@@ -524,20 +516,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
               + Add obstacle
             </Button>
           </div>
-          <div onPointerDown={(event) => moveHere(event)}>
-            <RoomSketch
-              svgRef={sketch}
-              outline={outline}
-              spots={spots}
-              trace={walked}
-              position={position}
-              label={`Room with ${places} places and ${obstacles} obstacles. Tap where you are standing to correct your position.`}
-            />
-            <p className="mt-1 text-muted">Yellow dot in the wrong place? Tap the map where you are standing.</p>
-          </div>
-          <Button variant="secondary" onClick={backAtEntrance}>
-            I am back at the entrance (improves accuracy)
-          </Button>
+          <RoomSketch outline={outline} spots={spots} label={`Room with ${places} places and ${obstacles} obstacles`} />
           <Button variant="secondary" onClick={() => void finish()} disabled={spots.length < 2}>
             Finish recording
           </Button>
@@ -549,7 +528,7 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
           className="flex flex-col gap-3 rounded-xl border-2 border-primary p-4"
           onSubmit={(event) => {
             event.preventDefault();
-            saveSpot();
+            nameSpot();
           }}
         >
           <img src={naming.photo} alt="Photo of this spot" className="max-h-40 rounded-lg object-cover" />
@@ -566,13 +545,83 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
             placeholder={naming.kind === "place" ? "e.g. Lift 1" : "e.g. Plant"}
             className="min-h-14 rounded-xl border-2 border-fg bg-bg px-3 text-lg"
           />
+          {naming.kind === "place" && (
+            <label className="flex min-h-14 items-center gap-3 rounded-lg border-2 border-border px-3 text-lg">
+              <input type="checkbox" checked={isDoor} onChange={(e) => setIsDoor(e.target.checked)} className="h-6 w-6" />
+              This leads to another room or floor
+            </label>
+          )}
+          {naming.kind === "place" && isDoor && (
+            <label className="flex flex-col gap-1">
+              <span className="text-lg font-semibold">What is it?</span>
+              <select value={via} onChange={(e) => setVia(e.target.value as Passage)} className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg">
+                <option value="door">A door</option>
+                <option value="lift">A lift</option>
+                <option value="stairs">Stairs</option>
+              </select>
+            </label>
+          )}
+          {naming.kind === "place" && isDoor && via === "stairs" && (
+            <div className="grid grid-cols-1 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-lg font-semibold">How many steps?</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={200}
+                  value={stairs.steps}
+                  onChange={(e) => setStairs({ ...stairs, steps: Math.max(1, Math.min(200, Math.round(Number(e.target.value) || 1))) })}
+                  className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-lg font-semibold">From here they go</span>
+                <select value={stairs.going} onChange={(e) => setStairs({ ...stairs, going: e.target.value as Stairs["going"] })} className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg">
+                  <option value="up">Up</option>
+                  <option value="down">Down</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-lg font-semibold">Handrail, going from here</span>
+                <select value={stairs.handrail} onChange={(e) => setStairs({ ...stairs, handrail: e.target.value as Stairs["handrail"] })} className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg">
+                  <option value="right">On the right</option>
+                  <option value="left">On the left</option>
+                  <option value="both">On both sides</option>
+                  <option value="none">No handrail</option>
+                </select>
+              </label>
+            </div>
+          )}
+          {naming.kind === "place" && isDoor && via === "door" && (
+            <label className="flex flex-col gap-1">
+              <span className="text-lg font-semibold">How does it open?</span>
+              <select value={opens} onChange={(e) => setOpens(e.target.value as DoorOpening | "")} className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg">
+                <option value="">I do not know</option>
+                <option value="in">It swings into this room</option>
+                <option value="out">It swings away, out of this room</option>
+                <option value="sliding">It slides</option>
+              </select>
+            </label>
+          )}
+          {naming.kind === "obstacle" && (
+            <label className="flex flex-col gap-1">
+              <span className="text-lg font-semibold">Anything a cane will not warn about?</span>
+              <select value={hazard} onChange={(e) => setHazard(e.target.value as Hazard | "")} className="min-h-12 rounded-lg border-2 border-fg bg-bg px-3 text-lg">
+                <option value="">No</option>
+                <option value="head">It is at head height (a shelf, a sign)</option>
+                <option value="stairs">Stairs or a step</option>
+                <option value="glass">It is glass</option>
+              </select>
+            </label>
+          )}
           {naming.kind === "obstacle" && (
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-lg font-semibold">How big is it?</legend>
               {(Object.keys(obstacleSizes) as ObstacleSize[]).map((key) => (
                 <label key={key} className="flex min-h-12 items-center gap-3 rounded-lg border-2 border-border px-3 text-lg">
                   <input type="radio" name="size" checked={size === key} onChange={() => setSize(key)} className="h-6 w-6" />
-                  {obstacleSizes[key].label}
+                  {obstacleSizes[key].label} (about {(obstacleRadius(key, outline) * 2).toFixed(1)} m across)
                 </label>
               ))}
             </fieldset>
@@ -582,10 +631,22 @@ export function Recorder({ staffName, onCreated }: RecorderProps) {
               Cancel
             </Button>
             <Button type="submit" disabled={!spotName.trim()}>
-              Save
+              Next: place it
             </Button>
           </div>
         </form>
+      )}
+
+      {phase === "placing" && naming && (
+        <div className="flex flex-col gap-3">
+          <p className="text-xl font-semibold">Tap the drawing where {spotName.trim()} is.</p>
+          <div onPointerDown={(event) => placeSpot(event)}>
+            <RoomSketch svgRef={sketch} outline={outline} spots={spots} label={`Room drawing. Tap where ${spotName.trim()} is.`} />
+          </div>
+          <Button variant="secondary" onClick={() => setPhase("naming")}>
+            Back
+          </Button>
+        </div>
       )}
 
       {phase === "failed" && (

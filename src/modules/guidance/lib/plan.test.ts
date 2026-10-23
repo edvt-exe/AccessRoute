@@ -30,24 +30,18 @@ describe("planPath", () => {
     expect(plan.legs.length).toBeLessThanOrEqual(4);
   });
 
-  it("is close to the shortest possible way", () => {
+  it("is not much longer than the shortest way, even keeping to the walls", () => {
     const plan = planPath(room, { x: 0, y: 0 }, "k");
     if (!plan.ok) throw new Error("no plan");
     const length = plan.legs.reduce((s, l) => s + l.metres, 0);
-    expect(length).toBeLessThan(9.5); // straight through would be 7.5 m
+    expect(length).toBeLessThan(12); // straight through would be 7.5 m
   });
 
-  it("walks straight when nothing is in the way", () => {
-    const plan = planPath(room, { x: 0, y: 0 }, "w");
+  it("crosses the open floor to a place in the middle of the room", () => {
+    const middle = { ...room, spots: [room.spots[0], spot("t", "place", "Table", 0, 2.5)] };
+    const plan = planPath(middle, { x: 0, y: 0 }, "t");
     if (!plan.ok) throw new Error("no plan");
     expect(plan.legs).toHaveLength(1);
-  });
-
-  it("warns about the sofa on the way and says on which side", () => {
-    const plan = planPath(room, { x: 0, y: 0 }, "k");
-    if (!plan.ok) throw new Error("no plan");
-    const warnings = plan.legs.flatMap((l) => l.warnings);
-    expect(warnings.map((w) => w.spot.name)).toContain("Sofa");
   });
 
   it("still reaches a place squeezed between a corner and an obstacle", () => {
@@ -69,12 +63,59 @@ describe("planPath", () => {
 
 describe("sentences", () => {
   it("gives one instruction with the turn and the steps", () => {
-    const plan = planPath(room, { x: 0, y: 0 }, "w");
+    const middle = { ...room, spots: [room.spots[0], spot("t", "place", "Table", 1.5, 2.5)] };
+    const plan = planPath(middle, { x: 0, y: 0 }, "t");
     if (!plan.ok) throw new Error("no plan");
-    expect(legSentence(plan.legs[0], 0, true, "Window")).toMatch(/^Turn (slightly )?right\. Walk about \d+ steps\. .*Window will be in front of you\.$/);
+    expect(legSentence(plan.legs[0], 0, true, "Table")).toMatch(/^(Bear|Turn) slightly right\. Walk about \d+ steps\. Table will be in front of you\.$/);
   });
 
   it("tells where you are from the measured position", () => {
     expect(whereAmI(room, { x: 0, y: 2.5 }, room.spots[1], 0)).toBe("Sofa is about 2 steps ahead of you. Kitchen is about 7 steps away.");
+  });
+});
+
+// the kitchen is in the far left corner; a cabinet stands against the left wall half way
+const corner: FloorMap = {
+  ...room,
+  spots: [
+    spot("e", "place", "Entrance", 0, 0),
+    spot("k", "place", "Kitchen", -2.4, 7.4),
+    spot("cab", "obstacle", "Cabinet", -2.6, 4, 0.4),
+  ],
+};
+
+function sentences(map: FloorMap, goal: string) {
+  const plan = planPath(map, { x: 0, y: 0 }, goal);
+  if (!plan.ok) throw new Error("no plan");
+  let facing = 0;
+  return plan.legs.map((leg, i) => {
+    const text = legSentence(leg, facing, i === plan.legs.length - 1, "Kitchen", 0.7, plan.legs[i - 1] ?? null, plan.legs[i + 1] ?? null, map);
+    facing = leg.heading;
+    return text;
+  });
+}
+
+describe("routes along the walls", () => {
+  it("keeps the wall on one side, so a cane can follow it", () => {
+    expect(sentences(corner, "k").join(" ")).toMatch(/Keep the wall on your (left|right)/);
+  });
+
+  it("says when something against the wall is in the way and how to get round it", () => {
+    expect(sentences(corner, "k").join(" ")).toMatch(/blocked by Cabinet, step around it on your right, about \d+ steps?, then find the wall again/);
+  });
+
+  it("says what lines a wall when the recorder walked past furniture there", () => {
+    const sofa = { ...corner, walls: [{ along: "Sofa" }] };
+    expect(sentences(sofa, "k").join(" ")).toMatch(/Keep the sofa on your/);
+  });
+
+  it("warns plainly about something at head height that a cane will not find", () => {
+    const shelf = { ...corner, spots: [...corner.spots, { ...spot("shelf", "obstacle", "Shelf", -0.6, 6, 0.2), hazard: "head" as const }] };
+    expect(sentences(shelf, "k").join(" ")).toMatch(/Shelf at head height .*your cane will not find it/);
+  });
+
+  it("warns about a door that can swing open towards the person", () => {
+    const door = { ...corner, spots: [...corner.spots, { ...spot("d", "place", "Store room", -2.9, 2.6), door: true, opens: "in" as const }] };
+    expect(sentences(door, "k").join(" ")).toMatch(/the door Store room on your left can swing open towards you/);
   });
 });

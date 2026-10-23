@@ -15,6 +15,8 @@ export {
   outlineFromSteps,
   outlineFromCorners,
   wallsSoFar,
+  obstacleRadius,
+  obstacleSizeOf,
   round,
   pointInPolygon,
   distanceToSegment,
@@ -22,3 +24,6 @@ export {
   sideOf,
   bounds,
 } from "./geometry";
+export { doorLinks, roomRoute, afterDoor, doorOut, wallOut, buildingLayout, onWall, place, changesFloor, floorName, otherEnd } from "./building";
+export type { DoorLink, Hop, Placement } from "./building";
+export type { ObstacleSize } from "./geometry";

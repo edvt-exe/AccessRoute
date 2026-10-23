@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Haptics } from "@/core/ui/Haptics";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en">
       <body className="min-h-dvh font-sans antialiased">
+        <Haptics />
         <main className="mx-auto flex max-w-xl flex-col gap-5 px-4 py-4">{children}</main>
       </body>
     </html>

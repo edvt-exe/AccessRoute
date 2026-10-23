@@ -60,6 +60,7 @@ export function readDeviceValue<T>(key: string) {
 
 const roleKey = "accessroute.role";
 const nameKey = "accessroute.name";
+const tutorialKey = "accessroute.tutorial";
 
 export function useRole() {
   return useDeviceValue<Role>(roleKey);
@@ -75,4 +76,68 @@ export function useStaffName() {
 
 export function saveStaffName(name: string) {
   writeDeviceValue(nameKey, name.trim());
+}
+
+// the guided person's own name, asked once before the tutorial
+const guestKey = "accessroute.guest";
+
+export function useGuestName() {
+  return useDeviceValue<string>(guestKey);
+}
+
+export function readGuestName() {
+  return readDeviceValue<string>(guestKey);
+}
+
+export function saveGuestName(name: string) {
+  writeDeviceValue(guestKey, name.trim());
+}
+
+// the guided user's tutorial is played once, help plays it again
+export function useTutorialDone() {
+  return useDeviceValue<boolean>(tutorialKey);
+}
+
+export function saveTutorialDone(done: boolean) {
+  writeDeviceValue(tutorialKey, done);
+}
+
+// the room where the last trip ended, the best guess for where a guided person starts the next one
+const lastRoomKey = "accessroute.last-room";
+
+export function readLastRoom() {
+  return readDeviceValue<string>(lastRoomKey);
+}
+
+export function saveLastRoom(mapId: string) {
+  writeDeviceValue(lastRoomKey, mapId);
+}
+
+// how this person walks with this phone: the length of a step, and how many real steps one counted
+// step is (a phone that counts 12 when 10 were walked has a factor of 10 / 12)
+export type StepProfile = { length: number; factor: number; calibrated: boolean };
+
+const stepKey = "accessroute.steps";
+export const defaultStepProfile: StepProfile = { length: 0.7, factor: 1, calibrated: false };
+
+export function useStepProfile() {
+  return useDeviceValue<StepProfile>(stepKey) ?? defaultStepProfile;
+}
+
+export function readStepProfile() {
+  return readDeviceValue<StepProfile>(stepKey) ?? defaultStepProfile;
+}
+
+export function saveStepProfile(profile: StepProfile) {
+  writeDeviceValue(stepKey, profile);
+}
+
+// a walking step is about 41% of a person's height
+export function stepLengthFromHeight(centimetres: number) {
+  return Math.round(Math.min(1, Math.max(0.45, centimetres * 0.00415)) * 100) / 100;
+}
+
+export function stepFactor(walked: number, counted: number) {
+  if (counted <= 0) return null;
+  return Math.round(Math.min(2.5, Math.max(0.4, walked / counted)) * 100) / 100;
 }
