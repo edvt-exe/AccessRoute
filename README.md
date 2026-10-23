@@ -228,6 +228,6 @@ schema-validated structured output.
 
 ## Team
 
-- **Eduard Voicu** – [@edvt-exe](https://github.com/edvt-exe)
-- **Ghiduc**
-- **Marcelin**
+- **Eduard-Alexandru Voicu**
+- **Ionut-Alexandru Ghiduc**
+- **Ionut-Marcelin Patras**
