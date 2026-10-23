@@ -52,17 +52,31 @@ export async function callClaudeJson<T extends z.ZodType>(
   }
   content.push({ type: "text", text: prompt });
 
-  const message = await getClient().messages.parse({
-    model: visionModel,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: "user", content }],
-    output_config: { format: zodOutputFormat(schema) },
-  });
+  const request = (limit: number) =>
+    getClient().messages.parse({
+      model: visionModel,
+      max_tokens: limit,
+      system,
+      messages: [{ role: "user", content }],
+      output_config: { format: zodOutputFormat(schema) },
+    });
+  const logCost = (usage: { input_tokens: number; output_tokens: number }) => {
+    const cost = (usage.input_tokens * inputPrice + usage.output_tokens * outputPrice) / 1_000_000;
+    console.info(`[ai] ${task}: ${usage.input_tokens} in, ${usage.output_tokens} out, ~$${cost.toFixed(4)}`);
+  };
 
-  const { input_tokens, output_tokens } = message.usage;
-  const cost = (input_tokens * inputPrice + output_tokens * outputPrice) / 1_000_000;
-  console.info(`[ai] ${task}: ${input_tokens} in, ${output_tokens} out, ~$${cost.toFixed(4)}`);
+  // now and then the json comes back broken or cut off at the token limit; one more try with more room
+  // is cheaper than a failed search
+  let message = await request(maxTokens).catch((error: Error) => {
+    if (!/parse structured output/i.test(error.message)) throw error;
+    return null;
+  });
+  if (message) logCost(message.usage);
+  if (!message || message.parsed_output == null) {
+    console.warn(`[ai] ${task}: ${message?.stop_reason === "max_tokens" || !message ? "answer cut off or broken" : "no answer"}, trying once more`);
+    message = await request(maxTokens * 2);
+    logCost(message.usage);
+  }
 
   if (message.parsed_output == null) throw new Error("the ai returned no structured output");
   return message.parsed_output as z.infer<T>;
