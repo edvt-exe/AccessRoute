@@ -301,3 +301,27 @@ export function pointAlongOutline(outline: Point[], share: number) {
   }
   return { point: outline[0], heading: 0 };
 }
+
+export type ObstacleSize = "small" | "medium" | "large";
+
+// small, medium and large are measured against the room: in a 3 m wide room a large table cannot be 2 m
+// across. each size is a share of the narrowest side of the room, never more than in a big room
+const obstaclePresets: Record<ObstacleSize, { radius: number; share: number; least: number }> = {
+  small: { radius: 0.3, share: 0.06, least: 0.15 },
+  medium: { radius: 0.6, share: 0.1, least: 0.2 },
+  large: { radius: 1, share: 0.16, least: 0.3 },
+};
+
+export function obstacleRadius(size: ObstacleSize, outline: Point[]) {
+  const preset = obstaclePresets[size];
+  if (outline.length < 3) return preset.radius;
+  const b = bounds(outline);
+  const narrow = Math.min(b.maxX - b.minX, b.maxY - b.minY);
+  return Math.round(Math.min(preset.radius, Math.max(preset.least, narrow * preset.share)) * 100) / 100;
+}
+
+// the size whose radius is closest, for showing a stored obstacle in a size list
+export function obstacleSizeOf(radius: number, outline: Point[]): ObstacleSize {
+  const sizes: ObstacleSize[] = ["small", "medium", "large"];
+  return sizes.reduce((a, b) => (Math.abs(obstacleRadius(b, outline) - radius) < Math.abs(obstacleRadius(a, outline) - radius) ? b : a));
+}

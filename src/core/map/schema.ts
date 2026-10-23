@@ -3,6 +3,8 @@ import { z } from "zod";
 const jpeg = z.string().startsWith("data:image/jpeg;base64,");
 const metres = z.number().min(-500).max(500);
 
+export const mapIdSchema = z.string().regex(/^[a-z0-9-]{3,60}$/);
+
 export const pointSchema = z.object({ x: metres, y: metres });
 
 export const spotSchema = z.object({
@@ -13,9 +15,20 @@ export const spotSchema = z.object({
   y: metres,
   radius: z.number().min(0).max(5),
   heading: z.number().min(0).max(360).nullable(),
-  photo: z.union([jpeg, z.string().url()]),
-  thumb: z.union([jpeg, z.string().url()]),
+  // an obstacle added later on the drawing has no photo
+  photo: z.union([jpeg, z.string().url(), z.literal("")]),
+  thumb: z.union([jpeg, z.string().url(), z.literal("")]),
   videoTime: z.number().nonnegative(),
+  door: z.boolean().optional(),
+  description: z.string().max(300).optional(),
+  opens: z.enum(["in", "out", "sliding"]).nullable().optional(),
+  hazard: z.enum(["glass", "stairs", "head"]).nullable().optional(),
+  leadsTo: z.object({ mapId: mapIdSchema, spotId: z.string().min(1).max(40) }).nullable().optional(),
+  via: z.enum(["door", "lift", "stairs"]).nullable().optional(),
+  stairs: z
+    .object({ steps: z.number().int().min(1).max(200), going: z.enum(["up", "down"]), handrail: z.enum(["left", "right", "both", "none"]) })
+    .nullable()
+    .optional(),
 });
 
 export const viewSchema = z.object({
@@ -29,8 +42,6 @@ export const viewSchema = z.object({
 });
 
 export const viewsSchema = z.array(viewSchema).max(80);
-
-export const mapIdSchema = z.string().regex(/^[a-z0-9-]{3,60}$/);
 
 export const floorMapSchema = z
   .object({
@@ -46,6 +57,8 @@ export const floorMapSchema = z
     walked: z.array(pointSchema).max(4000),
     closureError: z.number().min(0),
     version: z.number().int().nonnegative(),
+    walls: z.array(z.object({ along: z.string().max(60).optional(), glass: z.boolean().optional() })).max(400).optional(),
+    floor: z.string().trim().max(30).nullable().optional(),
   })
   .refine((map) => map.spots[0]?.kind === "place", { message: "the first spot must be the entrance" })
   .refine((map) => new Set(map.spots.map((s) => s.id)).size === map.spots.length, { message: "spot ids must be unique" });
