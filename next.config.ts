@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // dev only: lets a phone load the dev bundles through an https tunnel
+  allowedDevOrigins: ["*.trycloudflare.com", "*.ngrok-free.app"],
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
