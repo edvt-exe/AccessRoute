@@ -1,5 +1,5 @@
 import { floorMapSchema, mapIdSchema, type FloorMap, type View } from "@/core/map";
-import { deleteMap, listMaps, loadMap, loadPublishedMaps, saveMap } from "@/core/storage/maps";
+import { deleteMap, listMaps, loadMap, loadPublishedMaps, saveMap, syncDoors } from "@/core/storage/maps";
 import { createInput, createMap } from "@/modules/recording/api/create";
 
 export const maxDuration = 60;
@@ -25,7 +25,8 @@ export async function POST(request: Request) {
   const parsed = createInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return bad(parsed.error.issues[0]?.message ?? "The recording is not valid.");
   try {
-    return Response.json(await createMap(parsed.data.map as FloorMap, parsed.data.views as View[]), { status: 201 });
+    const created = await createMap(parsed.data.map as FloorMap, parsed.data.views as View[]);
+    return Response.json(created, { status: 201 });
   } catch (error) {
     return bad((error as Error).message, 409);
   }
@@ -44,7 +45,9 @@ export async function PUT(request: Request) {
     version: existing.version + 1,
     updatedAt: new Date().toISOString(),
   };
-  return Response.json(await saveMap(next));
+  const saved = await saveMap(next);
+  await syncDoors(existing, saved);
+  return Response.json(saved);
 }
 
 export async function DELETE(request: Request) {

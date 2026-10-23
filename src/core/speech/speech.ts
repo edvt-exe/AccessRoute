@@ -59,6 +59,10 @@ export function speak(text: string): Promise<void> {
   });
 }
 
+export function isSpeaking() {
+  return canSpeak() && window.speechSynthesis.speaking;
+}
+
 export function stopSpeaking() {
   if (canSpeak()) window.speechSynthesis.cancel();
 }
@@ -117,13 +121,13 @@ export function unlockAudio() {
   void audio.resume().catch(() => {});
 }
 
-export function beep(frequency = 880, ms = 150) {
+export function beep(frequency = 880, ms = 150, volume = 0.15) {
   if (!audio) unlockAudio();
   if (!audio) return;
   const oscillator = audio.createOscillator();
   const gain = audio.createGain();
   oscillator.frequency.value = frequency;
-  gain.gain.value = 0.15;
+  gain.gain.value = volume;
   oscillator.connect(gain).connect(audio.destination);
   oscillator.start();
   oscillator.stop(audio.currentTime + ms / 1000);

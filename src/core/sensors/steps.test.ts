@@ -36,6 +36,37 @@ describe("StepDetector", () => {
   });
 });
 
+// a step as a phone in the hand feels it: heel strike, bounce back, then the push-off of the foot
+function realistic(cadence: number, pushOff: number, seconds = 10, detector = new StepDetector(), start = 0) {
+  let count = 0;
+  let seed = 5;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const period = 1000 / cadence;
+  const bump = (x: number, width: number) => Math.exp(-((x / width) ** 2));
+  for (let t = 0; t < seconds * 1000; t += 1000 / 60) {
+    const k = t % period;
+    const value = 9.81 + 2 * (bump(k - 80, 60) - 0.5 * bump(k - 220, 80) + pushOff * bump(k - 80 - 0.42 * period, 70)) + 0.2 * random();
+    if (detector.push(value, start + t)) count++;
+  }
+  return count;
+}
+
+describe("StepDetector on a real step shape", () => {
+  it.each([0.9, 1.1, 1.3, 1.6, 2])("does not count the push-off as a step at %s steps a second", (cadence) => {
+    const count = realistic(cadence, 0.9);
+    expect(count).toBeGreaterThanOrEqual(cadence * 10 - 1);
+    expect(count).toBeLessThanOrEqual(cadence * 10 + 2);
+  });
+
+  it("keeps the rhythm after a stop, so the next stretch counts right from the first step", () => {
+    const detector = new StepDetector();
+    realistic(1.1, 0.9, 6, detector);
+    // a pause of 4 seconds, then 5 more seconds of walking
+    for (let t = 6000; t < 10000; t += 1000 / 60) detector.push(9.81, t);
+    expect(realistic(1.1, 0.9, 5, detector, 10000)).toBeLessThanOrEqual(6);
+  });
+});
+
 describe("StepTrain", () => {
   it("counts a walk, including its first step", () => {
     const train = new StepTrain();
